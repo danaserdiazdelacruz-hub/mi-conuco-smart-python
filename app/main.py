@@ -1,5 +1,7 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+# app/main.py - Versión 2 (con endpoint de WhatsApp)
+
+from fastapi import FastAPI, Form, Response
+from twilio.twiml.messaging_response import MessagingResponse
 
 app = FastAPI(
     title="Mi Conuco Smart",
@@ -7,27 +9,26 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Configurar CORS para permitir llamadas desde frontend
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # En producción cambiar por dominio específico
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 @app.get("/")
-async def root():
-    return {
-        "message": "Mi Conuco Smart API está funcionando",
-        "status": "activo",
-        "version": "1.0.0"
-    }
+def root():
+    return {"message": "API funcionando"}
 
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy"}
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+# --- WEBHOOK PRINCIPAL DE WHATSAPP ---
+@app.post("/whatsapp")
+def webhook_whatsapp(From: str = Form(...), Body: str = Form(...)):
+    """
+    Este es el 'portero' que recibe todos los mensajes de Twilio.
+    """
+    telefono = From.replace('whatsapp:', '')
+    mensaje_entrante = Body.lower().strip()
+    
+    print(f"Mensaje recibido de {telefono}: '{mensaje_entrante}'") # Log para ver en la terminal
+    
+    # Por ahora, solo responderemos un eco para probar la conexión
+    mensaje_respuesta = f"Recibí tu mensaje: '{mensaje_entrante}'"
+    
+    # Creamos la respuesta para Twilio
+    twiml = MessagingResponse()
+    twiml.message(mensaje_respuesta)
+    
+    return Response(content=str(twiml), media_type="application/xml")
