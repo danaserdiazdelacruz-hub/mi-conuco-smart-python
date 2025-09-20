@@ -1,31 +1,32 @@
-# Este archivo es solo para probar nuestro nuevo servicio de clima.
+# Importamos 'sys' para poder añadir nuestra carpeta 'app' a las rutas de Python
 import sys
 sys.path.append('app')
 
+# Ahora sí podemos importar nuestro servicio
 from services.clima_service import clima_service
 
-if __name__ == "__main__":
-    print("--- Probando el Servicio del Clima MEJORADO con Open-Meteo ---")
-    
-    # Usaremos las coordenadas de Azua para la prueba
-    lat_azua = 18.4533
-    lon_azua = -70.7345
-    
-    print(f"\nObteniendo clima para Azua (Lat: {lat_azua}, Lon: {lon_azua})...")
-    
-    datos_clima = clima_service.obtener_clima_actual(lat=lat_azua, lon=lon_azua)
-    
-    if datos_clima:
-        print("\n✅ ¡Éxito! Datos recibidos:")
-        print(f"   🌡️ Temperatura Actual: {datos_clima['temperatura_actual']}°C")
-        print(f"   💨 Velocidad del Viento: {datos_clima['velocidad_viento']} km/h")
-        print(f"   🌦️ Código del Clima: {datos_clima['codigo_clima']}")
-        print(f"   ⏰ Hora de la Medición: {datos_clima['hora_medicion']}")
-        # --- ¡NUEVO! Verificamos los nuevos datos ---
-        print(f"   💧 Lluvia en las últimas 24h: {datos_clima['lluvia_24h']} mm")
-        print(f"   🔼 Temperatura Máxima (hoy): {datos_clima['temperatura_max_24h']}°C")
-        print(f"   🔽 Temperatura Mínima (hoy): {datos_clima['temperatura_min_24h']}°C")
-    else:
-        print("\n❌ Fallo al obtener los datos del clima.")
+# --- INICIO DEL SCRIPT DE PRUEBA ---
 
-    print("\n--- Prueba finalizada ---")
+print("--- 🔬 Probando el Servicio del Clima ---")
+
+# Coordenadas para la prueba (ej. Santo Domingo)
+LATITUD_PRUEBA = 18.4861
+LONGITUD_PRUEBA = -69.9312
+
+print(f"Solicitando clima para Lat: {LATITUD_PRUEBA}, Lon: {LONGITUD_PRUEBA}...")
+
+# Llamamos a la función que queremos probar
+datos_clima = clima_service.obtener_clima_actual(lat=LATITUD_PRUEBA, lon=LONGITUD_PRUEBA)
+
+# Verificamos y mostramos el resultado
+if datos_clima:
+    print("\n✅ ¡Éxito! Se recibieron los datos del clima:")
+    print(f"   🌡️ Temperatura Actual:   {datos_clima.get('temperatura_actual')}°C")
+    print(f"   💨 Velocidad del Viento: {datos_clima.get('velocidad_viento')} km/h")
+    print(f"   📈 Temp. Máx. (24h):     {datos_clima.get('temperatura_max_24h')}°C")
+    print(f"   💧 Lluvia (24h):         {datos_clima.get('lluvia_24h')} mm")
+else:
+    print("\n❌ ¡Fallo! No se pudieron obtener los datos del clima.")
+    print("   Revisa la consola en busca de mensajes de error de la API.")
+
+print("\n--- Fin de la prueba ---")

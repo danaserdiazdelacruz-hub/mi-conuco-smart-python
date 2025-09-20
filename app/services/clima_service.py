@@ -1,21 +1,19 @@
 import requests
-from datetime import datetime
 
 class ClimaService:
     def __init__(self):
         self.BASE_URL = "https://api.open-meteo.com/v1/forecast"
 
-    def obtener_clima_historico(self, lat: float, lon: float, dias_atras: int = 2) -> dict | None:
+    def obtener_clima_actual(self, lat: float, lon: float) -> dict | None:
         """
-        Obtiene el clima actual Y un historial de los últimos días (hasta 2 días / 48h).
+        Obtiene un resumen climático completo para las próximas 24 horas.
         """
         params = {
             "latitude": lat,
             "longitude": lon,
-            "current_weather": "true",
-            "daily": "weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum",
+            "daily": "temperature_2m_max,precipitation_sum,relative_humidity_2m_mean,precipitation_probability_max",
             "timezone": "auto",
-            "past_days": dias_atras # ¡CLAVE! Pedimos historial de X días
+            "forecast_days": 1 # Solo necesitamos el pronóstico para HOY
         }
 
         try:
@@ -23,26 +21,23 @@ class ClimaService:
             response.raise_for_status()
             data = response.json()
             
-            clima_actual = data.get("current_weather")
-            historial_diario = data.get("daily")
-
-            if not clima_actual or not historial_diario:
+            resumen_diario = data.get("daily")
+            if not resumen_diario:
                 return None
 
+            # Extraemos los datos del primer (y único) día del pronóstico
             return {
-                "actual": {
-                    "temperatura": clima_actual.get("temperature"),
-                    "velocidad_viento": clima_actual.get("windspeed"),
-                },
-                "historial": {
-                    "fechas": historial_diario.get("time", []),
-                    "temp_max": historial_diario.get("temperature_2m_max", []),
-                    "temp_min": historial_diario.get("temperature_2m_min", []),
-                    "lluvia_sum": historial_diario.get("precipitation_sum", [])
-                }
+                "temperatura_max_24h": resumen_diario.get("temperature_2m_max", [0])[0],
+                "lluvia_24h": resumen_diario.get("precipitation_sum", [0])[0],
+                "humedad_media": resumen_diario.get("relative_humidity_2m_mean", [0])[0],
+                "prob_lluvia": resumen_diario.get("precipitation_probability_max", [0])[0]
             }
-        except Exception as e:
-            print(f"Error al obtener datos históricos del clima: {e}")
+
+        except requests.exceptions.RequestException as e:
+            print(f"Error al contactar la API de Open-Meteo: {e}")
+            return None
+        except (KeyError, IndexError) as e:
+            print(f"Error procesando la respuesta de la API del clima: {e}")
             return None
 
 clima_service = ClimaService()
