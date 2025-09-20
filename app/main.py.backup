@@ -1,0 +1,12 @@
+from fastapi import FastAPI, Form, Depends
+from fastapi.responses import Response
+from twilio.twiml.messaging_response import MessagingResponse
+from sqlalchemy.orm import Session
+
+# Add this to your Python path
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from config.database import get_db, test_connection
+from services.whatsapp_service import whatsapp_service
