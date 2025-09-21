@@ -1,73 +1,74 @@
-from fastapi import FastAPI, Form, Depends
-from fastapi.responses import Response
-from twilio.twiml.messaging_response import MessagingResponse
+from fastapi import FastAPI, Request, Depends
 from sqlalchemy.orm import Session
+from .config.database import get_db, test_connection
+from .services.whatsapp_service import whatsapp_service
 
-# Importaciones corregidas para que funcionen desde el inicio
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-from config.database import get_db, test_connection
-from services.whatsapp_service import whatsapp_service
-
-# --- Creación de la App FastAPI ---
 app = FastAPI(
     title="Mi Conuco Smart",
-    description="Sistema de Inteligencia Agrícola Conversacional",
-    version="1.0.0"
+    description="Sistema de Inteligencia Agrícola para WhatsApp con Bird",
+    version="2.0.0"
 )
 
-# --- Evento de Arranque ---
 @app.on_event("startup")
 async def startup_event():
-    print("🚀 Iniciando Mi Conuco Smart...")
+    print("🚀 Iniciando Mi Conuco Smart (Modo Bird)...")
     if test_connection():
-        print("✅ Conexión a PostgreSQL verificada")
-        print("🌱 Sistema de alertas climáticas listo")
+        print("✅ Conexión a PostgreSQL verificada.")
     else:
-        print("❌ Error: No se puede conectar a PostgreSQL")
-
-# --- Endpoints de la API ---
+        print("❌ ERROR: No se pudo conectar a PostgreSQL.")
 
 @app.get("/")
 def root():
-    return {
-        "message": "Mi Conuco Smart API funcionando",
-        "status": "Sistema de Inteligencia Agrícola Conversacional activo"
-    }
+    return {"message": "Mi Conuco Smart API v2.0 (Bird) funcionando"}
 
 @app.post("/whatsapp")
-def webhook_whatsapp(From: str = Form(...), Body: str = Form(...), db: Session = Depends(get_db)):
+async def webhook_bird(request: Request, db: Session = Depends(get_db)):
     """
-    Webhook principal para WhatsApp con inteligencia conversacional
+    Webhook para recibir mensajes de WhatsApp desde Bird
     """
-    telefono = From.replace('whatsapp:', '')
-    
-    print(f"Mensaje recibido de {telefono}: '{Body}'")
-    
-    # Procesar el mensaje con el "cerebro" inteligente (whatsapp_service)
-    respuesta = whatsapp_service.procesar_mensaje_entrante(telefono, Body, db)
-    
-    # Crear y enviar la respuesta para Twilio
-    twiml = MessagingResponse()
-    twiml.message(respuesta)
-    
-    print(f"Respuesta enviada: {respuesta}") # Log para ver la respuesta en terminal
-    return Response(content=str(twiml), media_type="application/xml")
+    try:
+        data = await request.json()
+        
+        print(f"--- Webhook de Bird recibido ---")
+        print(data)
+        print("---------------------------------")
 
-@app.post("/test/sms")
-def test_sms(numero: str, mensaje: str):
-    """Endpoint para probar envío directo de mensajes"""
-    enviado = whatsapp_service.enviar_mensaje(numero, mensaje)
-    return {"enviado": enviado}
+        # Verificar que sea un mensaje entrante de WhatsApp
+        if data.get('event') == 'whatsapp.inbound':
+            payload = data.get('payload', {})
+            
+            # Extraer datos según la estructura real de Bird
+            from_number = payload.get('sender', {}).get('contact', {}).get('identifierValue')
+            contenido = payload.get('body', {}).get('text', {}).get('text')
+            
+            if from_number and contenido:
+                print(f"Mensaje de '{from_number}' dice: '{contenido}'")
+                
+                # Procesar con el servicio de WhatsApp
+                respuesta = whatsapp_service.procesar_mensaje_entrante(from_number, contenido, db)
+                
+                if respuesta:
+                    print(f"Enviando respuesta a '{from_number}': '{respuesta}'")
+                    whatsapp_service.enviar_mensaje(from_number, respuesta)
+                
+                return {"status": "ok", "message": "Mensaje procesado"}
+            else:
+                print(f"Datos faltantes - from: {from_number}, contenido: {contenido}")
+                
+    except Exception as e:
+        print(f"❌ ERROR en webhook Bird: {e}")
+        return {"status": "error", "detail": str(e)}
+
+    return {"status": "ignored", "message": "Evento no procesado"}
 
 @app.get("/health")
 def health_check():
-    """Verificar estado del sistema y la base de datos"""
+    """
+    Verificar estado del sistema y base de datos
+    """
     db_ok = test_connection()
     return {
         "status": "healthy" if db_ok else "unhealthy",
         "database": "connected" if db_ok else "disconnected",
-        "sistema": "Sistema de Inteligencia Agrícola Conversacional"
+        "sistema": "Mi Conuco Smart v2.0 (Bird)"
     }
