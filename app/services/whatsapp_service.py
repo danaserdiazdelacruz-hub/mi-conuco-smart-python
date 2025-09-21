@@ -12,11 +12,13 @@ load_dotenv()
 
 class WhatsAppService:
     def __init__(self):
-        self.access_key = os.getenv("BIRD_ACCESS_KEY")
-        self.channel_id = os.getenv("BIRD_WHATSAPP_CHANNEL_ID")
+        # Cambio a Telegram Bot API
+        self.telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
         
-        if not self.access_key or not self.channel_id:
-            raise ValueError("Credenciales de Bird no configuradas en el archivo .env")
+        if not self.telegram_token:
+            raise ValueError("TELEGRAM_BOT_TOKEN no configurado en el archivo .env")
+        
+        self.telegram_base_url = f"https://api.telegram.org/bot{self.telegram_token}"
         
         self.estados_usuario = {}
         self.cultivos_data = {
@@ -25,24 +27,19 @@ class WhatsAppService:
             "3": {"nombre": "Banano", "codigo": "BAN", "ciclo_dias": 365}
         }
 
-    def enviar_mensaje(self, to_number: str, mensaje: str) -> bool:
-        """Envía mensaje vía Bird WhatsApp API usando requests"""
-        url = "https://conversations.messagebird.com/v1/conversations/start"
+    def enviar_mensaje(self, chat_id: str, mensaje: str) -> bool:
+        """Envía mensaje vía Telegram Bot API"""
+        url = f"{self.telegram_base_url}/sendMessage"
         payload = {
-            "to": to_number,
-            "channelId": self.channel_id,
-            "type": "text",
-            "content": {"text": mensaje}
+            "chat_id": chat_id,
+            "text": mensaje,
+            "parse_mode": "HTML"
         }
-        headers = {
-            "Authorization": f"AccessKey {self.access_key}",
-            "Content-Type": "application/json"
-        }
-
+        
         try:
-            response = requests.post(url, json=payload, headers=headers)
-            if response.status_code in [200, 201]:
-                print(f"Mensaje enviado a {to_number}")
+            response = requests.post(url, json=payload)
+            if response.status_code == 200:
+                print(f"Mensaje enviado a {chat_id}")
                 return True
             else:
                 print(f"Error enviando mensaje: {response.status_code}")
@@ -73,7 +70,9 @@ class WhatsAppService:
             "PRECIO": "REPORTE",
             "PRECIOS": "REPORTE",
             "INFO": "AYUDA",
-            "INFORMACION": "AYUDA"
+            "INFORMACION": "AYUDA",
+            "/START": "AYUDA",  # Comando típico de Telegram
+            "/HELP": "AYUDA"
         }
         return sinonimos.get(mensaje, mensaje)
 
@@ -94,50 +93,50 @@ class WhatsAppService:
         }
         return nombres.get(mensaje, None)
 
-    def procesar_mensaje_entrante(self, from_number: str, mensaje: str, db) -> str:
+    def procesar_mensaje_entrante(self, chat_id: str, mensaje: str, db) -> str:
         comando_normalizado = self.normalizar_comando(mensaje)
         
-        if from_number in self.estados_usuario:
-            return self.continuar_conversacion(from_number, mensaje, db)
+        if chat_id in self.estados_usuario:
+            return self.continuar_conversacion(chat_id, mensaje, db)
         
         comandos = {
-            "REGISTRO": lambda: self.iniciar_registro(from_number, db),
-            "REPORTE": lambda: self.generar_reporte_inteligente(from_number, db),
+            "REGISTRO": lambda: self.iniciar_registro(chat_id, db),
+            "REPORTE": lambda: self.generar_reporte_inteligente(chat_id, db),
             "AYUDA": lambda: self.mostrar_ayuda()
         }
         
         if comando_normalizado in comandos:
             return comandos[comando_normalizado]()
         else:
-            return "No agarré ese comando, compa. Manda AYUDA pa' ver opciones."
+            return "No agarré ese comando, compa. Manda /help o AYUDA pa' ver opciones."
 
     def mensaje_bienvenida(self) -> str:
-        return "Dime a ver, compa! Soy tu Conuco Smart. Manda REGISTRO pa' apuntar siembra o REPORTE pa' ver como va todo."
+        return "¡Dime a ver, compa! 👋 Soy tu Conuco Smart. Manda REGISTRO pa' apuntar siembra o REPORTE pa' ver como va todo."
 
-    def iniciar_registro(self, from_number: str, db) -> str:
-        result = db.execute(text("SELECT COUNT(*) FROM usuarios WHERE telefono = :phone"), {"phone": from_number})
+    def iniciar_registro(self, chat_id: str, db) -> str:
+        result = db.execute(text("SELECT COUNT(*) FROM usuarios WHERE telefono = :phone"), {"phone": chat_id})
         if result.fetchone()[0] > 0:
             return "Ya te conozco, manito. Manda REPORTE pa' ver lo de tu siembra."
         
-        self.estados_usuario[from_number] = {"paso": "seleccionar_cultivo"}
+        self.estados_usuario[chat_id] = {"paso": "seleccionar_cultivo"}
         opciones = "\n".join([f"{k}-{v['nombre']}" for k, v in self.cultivos_data.items()])
-        return f"Claro que si! Vamos a apuntar esa siembra. Que sembraste?\n{opciones}\n(Manda el numero o el nombre)"
+        return f"¡Claro que si! Vamos a apuntar esa siembra. ¿Que sembraste?\n\n{opciones}\n\n(Manda el numero o el nombre)"
 
-    def continuar_conversacion(self, from_number: str, mensaje: str, db) -> str:
-        estado = self.estados_usuario[from_number]
+    def continuar_conversacion(self, chat_id: str, mensaje: str, db) -> str:
+        estado = self.estados_usuario[chat_id]
         
         pasos = {
-            "seleccionar_cultivo": lambda: self.procesar_cultivo(from_number, mensaje, estado),
-            "fecha_siembra": lambda: self.procesar_fecha_siembra(from_number, mensaje, estado),
-            "ubicacion": lambda: self.completar_registro(from_number, mensaje, estado, db)
+            "seleccionar_cultivo": lambda: self.procesar_cultivo(chat_id, mensaje, estado),
+            "fecha_siembra": lambda: self.procesar_fecha_siembra(chat_id, mensaje, estado),
+            "ubicacion": lambda: self.completar_registro(chat_id, mensaje, estado, db)
         }
         
         if estado["paso"] in pasos:
             return pasos[estado["paso"]]()
         else:
-            return "No agarré eso. Manda AYUDA si te perdiste."
+            return "No agarré eso. Manda /help si te perdiste."
 
-    def procesar_cultivo(self, from_number: str, mensaje: str, estado: Dict) -> str:
+    def procesar_cultivo(self, chat_id: str, mensaje: str, estado: Dict) -> str:
         cultivo_id = self.normalizar_cultivo(mensaje)
         
         if cultivo_id and cultivo_id in self.cultivos_data:
@@ -147,11 +146,11 @@ class WhatsAppService:
                 "cultivo_data": cultivo, 
                 "paso": "fecha_siembra"
             })
-            return f"Perfecto! {cultivo['nombre']}. Y cuando fue que lo sembraste?\n(Ejemplo: hoy, hace 10 dias, hace 2 semanas)"
+            return f"¡Perfecto! {cultivo['nombre']}. ¿Y cuando fue que lo sembraste?\n\n(Ejemplo: hoy, hace 10 dias, hace 2 semanas)"
         else:
-            return "No encontré ese cultivo, compa. Opciones: 1-Tomate, 2-Ají, 3-Banano"
+            return "No encontré ese cultivo, compa. Opciones:\n1-Tomate\n2-Ají\n3-Banano"
 
-    def procesar_fecha_siembra(self, from_number: str, mensaje: str, estado: Dict) -> str:
+    def procesar_fecha_siembra(self, chat_id: str, mensaje: str, estado: Dict) -> str:
         fecha_siembra = self.parsear_fecha(mensaje)
         if fecha_siembra:
             dias = (datetime.now().date() - fecha_siembra).days
@@ -160,9 +159,9 @@ class WhatsAppService:
                 "paso": "ubicacion", 
                 "dias_transcurridos": dias
             })
-            return f"Listo ({dias} dias). Ahora dime, en que municipio o paraje estas?"
+            return f"Listo ({dias} dias). Ahora dime, ¿en que municipio o paraje estas?"
         else:
-            return "Esa fecha no la agarré bien. Prueba asi: hace 10 dias o 15/8/2025"
+            return "Esa fecha no la agarré bien. Prueba asi:\n• hace 10 dias\n• 15/8/2025"
 
     def parsear_fecha(self, mensaje: str) -> Optional[datetime]:
         mensaje = mensaje.lower().strip()
@@ -182,7 +181,7 @@ class WhatsAppService:
             pass
         return None
 
-    def completar_registro(self, from_number: str, ubicacion: str, estado: Dict, db) -> str:
+    def completar_registro(self, chat_id: str, ubicacion: str, estado: Dict, db) -> str:
         try:
             zona_id = self.determinar_zona(ubicacion)
             
@@ -191,12 +190,12 @@ class WhatsAppService:
                 VALUES (:p, :n, 'activo', :z) 
                 ON CONFLICT (telefono) DO UPDATE SET status = 'activo', zona_id = :z
             """), {
-                "p": from_number, 
+                "p": chat_id, 
                 "n": f"Agricultor {estado['cultivo_data']['nombre']}", 
                 "z": zona_id
             })
             
-            user_id = db.execute(text("SELECT id FROM usuarios WHERE telefono = :p"), {"p": from_number}).fetchone()[0]
+            user_id = db.execute(text("SELECT id FROM usuarios WHERE telefono = :p"), {"p": chat_id}).fetchone()[0]
             cultivo_id = db.execute(text("SELECT id FROM cultivos WHERE codigo = :c"), {"c": estado['cultivo_data']['codigo']}).fetchone()[0]
             
             db.execute(text("""
@@ -210,9 +209,9 @@ class WhatsAppService:
             })
             
             db.commit()
-            del self.estados_usuario[from_number]
+            del self.estados_usuario[chat_id]
             
-            return f"De una! Apunté tu siembra de {estado['cultivo_data']['nombre']} en {self.obtener_nombre_zona(zona_id)}.\n\nManda REPORTE cuando quieras el dato del tiempo y precios."
+            return f"¡De una! ✅ Apunté tu siembra de {estado['cultivo_data']['nombre']} en {self.obtener_nombre_zona(zona_id)}.\n\nManda REPORTE cuando quieras el dato del tiempo y precios."
             
         except Exception as e:
             db.rollback()
@@ -235,7 +234,7 @@ class WhatsAppService:
         zonas = {1: "Azua", 2: "Santiago", 3: "Constanza", 4: "Hato Mayor"}
         return zonas.get(zona_id, "Zona desconocida")
 
-    def generar_reporte_inteligente(self, from_number: str, db) -> str:
+    def generar_reporte_inteligente(self, chat_id: str, db) -> str:
         try:
             siembra = db.execute(text("""
                 SELECT c.nombre as cultivo, s.fecha_siembra, c.dias_ciclo_promedio, 
@@ -247,7 +246,7 @@ class WhatsAppService:
                 JOIN zonas_agroecologicas z ON z.id = u.zona_id
                 WHERE u.telefono = :p AND s.activa = true 
                 ORDER BY s.created_at DESC LIMIT 1
-            """), {"p": from_number}).fetchone()
+            """), {"p": chat_id}).fetchone()
             
             if not siembra: 
                 return "No encontré tu siembra registrada, compa. Manda REGISTRO pa' empezar."
@@ -258,9 +257,9 @@ class WhatsAppService:
             # Construir encabezado
             cultivo_emoji = {"Tomate": "🍅", "Ají Cubanela": "🌶️", "Banano": "🍌"}.get(siembra.cultivo, "🌱")
             
-            reporte = f"{cultivo_emoji} {siembra.cultivo.upper()}\n"
-            reporte += f"{dias} dias ({progreso}% de crecimiento)\n"
-            reporte += f"{self.obtener_nombre_zona(siembra.zona_id)}\n\n"
+            reporte = f"<b>{cultivo_emoji} {siembra.cultivo.upper()}</b>\n"
+            reporte += f"📅 {dias} dias ({progreso}% de crecimiento)\n"
+            reporte += f"📍 {self.obtener_nombre_zona(siembra.zona_id)}\n\n"
             
             # Procesar clima
             datos_clima = clima_service.obtener_clima_actual(lat=siembra.latitud, lon=siembra.longitud)
@@ -270,7 +269,7 @@ class WhatsAppService:
                 humedad = datos_clima.get('humedad_media')
                 
                 if temp_max is not None:
-                    clima_str = f"HOY: {temp_max}°C"
+                    clima_str = f"🌡️ <b>HOY:</b> {temp_max}°C"
                     if humedad is not None:
                         if humedad > 85:
                             clima_str += ", con mucha humedad (bochorno)"
@@ -283,20 +282,20 @@ class WhatsAppService:
                     
                     # Generar recomendación
                     recomendacion = self._generar_recomendacion_estrategica(datos_clima, siembra.cultivo, dias)
-                    reporte += f"REVISAR:\n{recomendacion}\n\n"
+                    reporte += f"🔍 <b>REVISAR:</b>\n{recomendacion}\n\n"
                 else:
-                    reporte += "No pude conseguir datos del clima ahora mismo.\n\n"
+                    reporte += "🌡️ No pude conseguir datos del clima ahora mismo.\n\n"
             else:
-                reporte += "No pude conseguir el dato del tiempo pa' tu zona.\n\n"
+                reporte += "🌡️ No pude conseguir el dato del tiempo pa' tu zona.\n\n"
             
             # Agregar precio
             if siembra.precio_mercado_libra:
                 fecha_hoy = datetime.now().strftime("%d/%m/%Y")
-                reporte += f"💰 Precios MERCADOM - {fecha_hoy}:\n"
-                reporte += f"Detalle: RD${siembra.precio_mercado_libra + 3:.2f}/libra\n"
-                reporte += f"Por mayor: RD${siembra.precio_mercado_libra:.2f}/libra\n\n"
+                reporte += f"💰 <b>Precios MERCADOM - {fecha_hoy}:</b>\n"
+                reporte += f"• Detalle: RD${siembra.precio_mercado_libra + 3:.2f}/libra\n"
+                reporte += f"• Por mayor: RD${siembra.precio_mercado_libra:.2f}/libra\n\n"
 
-            reporte += "Mi Conuco Smart"
+            reporte += "🌱 <i>Mi Conuco Smart</i>"
             return reporte
 
         except Exception as e:
@@ -324,29 +323,37 @@ class WhatsAppService:
         # Alertas climáticas prioritarias
         if temp_max and temp_max > 32:
             if humedad and humedad > 80:
-                return "CALOR Y HUMEDAD: Revisa las hojas por si aparecen manchas. Si ves algo raro, actúa rápido pa' evitar hongos."
+                return "🔥💧 CALOR Y HUMEDAD: Revisa las hojas por si aparecen manchas. Si ves algo raro, actúa rápido pa' evitar hongos."
             elif humedad and humedad < 60:
-                return f"MUCHO CALOR SECO: {temp_max}°C. Si las hojas se ven agachadas, riégalas temprano y en la tarde."
+                return f"🔥☀️ MUCHO CALOR SECO: {temp_max}°C. Si las hojas se ven agachadas, riégalas temprano y en la tarde."
 
         if prob_lluvia and prob_lluvia > 50:
-            return f"VA A LLOVER ({prob_lluvia}%): Mira el cielo antes de regar. Si llueve, te ahorras el agua."
+            return f"🌧️ VA A LLOVER ({prob_lluvia}%): Mira el cielo antes de regar. Si llueve, te ahorras el agua."
 
         # Consejos por etapa
         consejos_etapa = {
-            "Crecimiento": "Las plantas están creciendo. Si las hojas se ven pálidas o crecen lento, pueden necesitar abono.",
-            "Floración": "Están saliendo flores. Un abono rico en fósforo ayuda, pero solo si no has abonado recientemente.",
-            "Fructificación": "Los frutos están engordando. Cuida que no les falte agua y vigila las plagas.",
-            "Cosecha": "Tiempo de cosechar. Revisa a diario pa' coger los frutos en su punto.",
-            "Establecimiento": "El banano se está estableciendo. Mantén limpia el área de maleza.",
-            "Desarrollo": "El banano está creciendo. Vigila manchas amarillas en hojas (sigatoka)."
+            "Crecimiento": "🌱 Las plantas están creciendo. Si las hojas se ven pálidas o crecen lento, pueden necesitar abono.",
+            "Floración": "🌸 Están saliendo flores. Un abono rico en fósforo ayuda, pero solo si no has abonado recientemente.",
+            "Fructificación": "🍅 Los frutos están engordando. Cuida que no les falte agua y vigila las plagas.",
+            "Cosecha": "✂️ Tiempo de cosechar. Revisa a diario pa' coger los frutos en su punto.",
+            "Establecimiento": "🌱 El banano se está estableciendo. Mantén limpia el área de maleza.",
+            "Desarrollo": "🍌 El banano está creciendo. Vigila manchas amarillas en hojas (sigatoka)."
         }
 
-        return consejos_etapa.get(etapa, "Todo se ve normal. Sigue con tus labores normales.")
+        return consejos_etapa.get(etapa, "✅ Todo se ve normal. Sigue con tus labores normales.")
 
     def mostrar_ayuda(self) -> str:
-        return """COMANDOS:
-- REGISTRO (o registrar, apuntar): Pa' guardar siembra nueva
-- REPORTE (o clima, precio): Pa' ver como va todo
-- AYUDA: Pa' ver estos comandos"""
+        return """<b>🤖 MI CONUCO SMART - COMANDOS:</b>
+
+🌱 <b>REGISTRO</b> (o registrar, apuntar)
+   Pa' guardar siembra nueva
+
+📊 <b>REPORTE</b> (o clima, precio)
+   Pa' ver como va todo
+
+❓ <b>/help</b> o <b>AYUDA</b>
+   Pa' ver estos comandos
+
+<i>Escribe cualquier comando pa' empezar</i>"""
 
 whatsapp_service = WhatsAppService()

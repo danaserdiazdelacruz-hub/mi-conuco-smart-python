@@ -1,74 +1,47 @@
-from fastapi import FastAPI, Request, Depends
-from sqlalchemy.orm import Session
-from .config.database import get_db, test_connection
-from .services.whatsapp_service import whatsapp_service
+# Agregar este endpoint a tu main.py existente
 
-app = FastAPI(
-    title="Mi Conuco Smart",
-    description="Sistema de Inteligencia Agrícola para WhatsApp con Bird",
-    version="2.0.0"
-)
-
-@app.on_event("startup")
-async def startup_event():
-    print("🚀 Iniciando Mi Conuco Smart (Modo Bird)...")
-    if test_connection():
-        print("✅ Conexión a PostgreSQL verificada.")
-    else:
-        print("❌ ERROR: No se pudo conectar a PostgreSQL.")
-
-@app.get("/")
-def root():
-    return {"message": "Mi Conuco Smart API v2.0 (Bird) funcionando"}
-
-@app.post("/whatsapp")
-async def webhook_bird(request: Request, db: Session = Depends(get_db)):
-    """
-    Webhook para recibir mensajes de WhatsApp desde Bird
-    """
+@app.route('/telegram', methods=['POST'])
+def handle_telegram_webhook():
+    """Maneja los webhooks de Telegram"""
     try:
-        data = await request.json()
+        data = request.get_json()
+        print(f"Webhook Telegram recibido: {data}")
         
-        print(f"--- Webhook de Bird recibido ---")
-        print(data)
-        print("---------------------------------")
-
-        # Verificar que sea un mensaje entrante de WhatsApp
-        if data.get('event') == 'whatsapp.inbound':
-            payload = data.get('payload', {})
+        # Verificar que es un mensaje válido
+        if not data or 'message' not in data:
+            return jsonify({"status": "no message"}), 200
             
-            # Extraer datos según la estructura real de Bird
-            from_number = payload.get('sender', {}).get('contact', {}).get('identifierValue')
-            contenido = payload.get('body', {}).get('text', {}).get('text')
+        message = data['message']
+        
+        # Extraer información del mensaje
+        chat_id = str(message['chat']['id'])
+        text = message.get('text', '').strip()
+        
+        if not text:
+            return jsonify({"status": "empty message"}), 200
             
-            if from_number and contenido:
-                print(f"Mensaje de '{from_number}' dice: '{contenido}'")
-                
-                # Procesar con el servicio de WhatsApp
-                respuesta = whatsapp_service.procesar_mensaje_entrante(from_number, contenido, db)
-                
-                if respuesta:
-                    print(f"Enviando respuesta a '{from_number}': '{respuesta}'")
-                    whatsapp_service.enviar_mensaje(from_number, respuesta)
-                
-                return {"status": "ok", "message": "Mensaje procesado"}
-            else:
-                print(f"Datos faltantes - from: {from_number}, contenido: {contenido}")
-                
+        print(f"Mensaje de {chat_id}: {text}")
+        
+        # Procesar mensaje con el servicio existente
+        respuesta = whatsapp_service.procesar_mensaje_entrante(chat_id, text, db)
+        
+        # Enviar respuesta
+        if respuesta:
+            whatsapp_service.enviar_mensaje(chat_id, respuesta)
+            
+        return jsonify({"status": "success"}), 200
+        
     except Exception as e:
-        print(f"❌ ERROR en webhook Bird: {e}")
-        return {"status": "error", "detail": str(e)}
+        print(f"Error procesando webhook Telegram: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
-    return {"status": "ignored", "message": "Evento no procesado"}
 
-@app.get("/health")
-def health_check():
-    """
-    Verificar estado del sistema y base de datos
-    """
-    db_ok = test_connection()
-    return {
-        "status": "healthy" if db_ok else "unhealthy",
-        "database": "connected" if db_ok else "disconnected",
-        "sistema": "Mi Conuco Smart v2.0 (Bird)"
-    }
+# También agregar este endpoint de verificación
+@app.route('/telegram/status', methods=['GET'])
+def telegram_status():
+    """Endpoint para verificar que el bot está funcionando"""
+    return jsonify({
+        "status": "active",
+        "service": "Mi Conuco Smart - Telegram Bot",
+        "timestamp": datetime.now().isoformat()
+    })
